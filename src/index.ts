@@ -195,39 +195,30 @@ const waitForResponse = async (threadId, runId) =>
                     if (updatedRun.required_action.type === "submit_tool_outputs") {
                         return Promise.all(
                             updatedRun.required_action.submit_tool_outputs.tool_calls.map((tool) => callTool(tool))
-                        ).then(async (results) => {
-                            try {
-                                // wait for run to be ready to accept tool outputs
-                                await new Promise<void>((resolve) => {
-                                    const interval = setInterval(async () => {
-                                        const run = await openai.beta.threads.runs.retrieve(threadId, runId)
-                                        console.log("Run status:", run.status)
-                                        if (["requires_action", "completed"].includes(run.status)) {
-                                            clearInterval(interval)
-                                            return resolve()
-                                        }
-                                        if (["failed", "cancelled", "cancelling", "expired"].includes(run.status)) {
-                                            clearInterval(interval)
-                                            throw new Error("Run failed")
-                                        }
-                                    }, 1000)
-                                })
-                                // submit tool outputs
-                                await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
-                                    tool_outputs: results
-                                })
-                            } catch (e) {
-                                console.error(
-                                    `An error occurred while submitting tools responses from thread ${threadId}`,
-                                    e
-                                )
-                                clearInterval(pollForResponse)
-                                clearInterval(loader)
-                                reject(e)
+                        ).then((results) => {
+                            const submitToolOutputs = async (results) => {
+                                try {
+                                    // submit tool outputs
+                                    await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
+                                        tool_outputs: results
+                                    })
+
+                                    const response = await waitForResponse(threadId, runId)
+                                    return resolve(response)
+                                } catch (error) {
+                                    clearInterval(pollForResponse)
+                                    clearInterval(loader)
+                                    const run = await openai.beta.threads.runs.retrieve(threadId, runId)
+                                    console.log("Run status:", run.status)
+                                    if (["failed", "cancelled", "cancelling", "expired"].includes(run.status)) {
+                                        throw new Error("Run failed")
+                                    }
+                                    console.log("Retrying to submit tools outputs...")
+                                    return setTimeout(() => submitToolOutputs(results), 1000)
+                                }
                             }
 
-                            const response = await waitForResponse(threadId, runId)
-                            return resolve(response)
+                            return submitToolOutputs(results)
                         })
                     }
                 }
