@@ -1,0 +1,6 @@
+{
+    "main": "index.js",
+    "dependencies": {
+        "openai": "^4.20.1"
+    }
+}

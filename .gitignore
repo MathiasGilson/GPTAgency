@@ -1,0 +1,28 @@
+# npm
+node_modules
+
+# vs code settings
+.vscode
+
+# caches
+*.cache
+
+# certs
+*.pem
+certs/
+
+# build
+**/dist/
+dist/
+dist.zip
+
+# mac
+.DS_Store
+
+# misc
+.cache
+yarn-error.log
+
+*.log
+package-lock.json
+
