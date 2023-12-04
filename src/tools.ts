@@ -3,39 +3,53 @@ import path from "path"
 import { minimatch } from "minimatch"
 
 export default {
-    list_files: function (dir = ".") {
+    list_files: (dir = ".") => {
         return new Promise((resolve) => {
             console.log("🗄️ Listing files in current directory...")
-            fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
-                if (err) {
-                    console.error("An error occurred:", err)
-                    return resolve(`Listing failed with error ${err.message}`)
-                }
-                let files = []
-                const promises = []
-                for (const entry of entries) {
-                    const fullPath = path.join(dir, entry.name)
-                    if (entry.isDirectory()) {
-                        promises.push(this.list_files(fullPath))
-                    } else {
-                        files.push(fullPath)
-                    }
-                }
-                if (fs.existsSync(".gitignore")) {
-                    const gitignore = fs
+
+            let gitignore = [".git", "node_modules", "dist", "build", "yarn.lock", "package-lock.json", ".gitignore"]
+            if (fs.existsSync(".gitignore")) {
+                gitignore = gitignore.concat(
+                    fs
                         .readFileSync(".gitignore", "utf-8")
                         .split("\n")
                         .filter(Boolean)
                         .map((line) => line.trim())
-                    files = files.filter((file) => !gitignore.some((ignore) => minimatch(file, ignore)))
-                }
-                return Promise.all(promises)
-                    .then((nestedFiles) => {
-                        const allFiles = files.concat(...nestedFiles)
-                        resolve(JSON.stringify(allFiles))
+                )
+            }
+
+            const listFiles = (dir: string, fileSet = new Set<string>()) =>
+                new Promise((resolve) => {
+                    fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
+                        if (err) {
+                            console.error("An error occurred:", err)
+                            return resolve(`Listing failed with error ${err.message}`)
+                        }
+                        const promises = []
+
+                        for (const entry of entries) {
+                            const fullPath = path.join(dir, entry.name)
+                            if (!gitignore.some((ignore) => minimatch(fullPath, ignore))) {
+                                if (entry.isDirectory()) {
+                                    promises.push(listFiles(fullPath, fileSet))
+                                } else if (!fileSet.has(fullPath)) {
+                                    fileSet.add(fullPath)
+                                }
+                            }
+                        }
+
+                        return Promise.all(promises)
+                            .then(() => resolve(Array.from(fileSet)))
+                            .catch(console.error)
                     })
-                    .catch((error) => resolve(`Listing failed with error ${error.message}`))
-            })
+                })
+
+            return listFiles(dir, new Set<string>())
+                .then((files) => {
+                    console.log(`Files listed successfully.`, files)
+                    return resolve(JSON.stringify(files))
+                })
+                .catch((error) => resolve(`Listing failed with error ${error.message}`))
         })
     },
     create_file: (args: { filePath: string }) => {
