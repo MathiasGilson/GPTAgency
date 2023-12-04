@@ -1,0 +1,2 @@
+export const SOFTWARE_ARCHITECT_ASSISTANT_ID = "asst_jftO66hPuDIj6I01oYrkBZ2Q"
+export const SOFTWARE_ENGINEER_ASSISTANT_ID = "asst_NIavcQKJhDam0sZ6fImYn4Yp"
