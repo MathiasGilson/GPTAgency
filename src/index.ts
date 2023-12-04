@@ -33,7 +33,7 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
 
     if (!assistantId) {
         // default to software architect assistant to start
-        console.log(`Current folder path: ${process.cwd()}`)
+        console.log(`\n\nCurrent folder path: ${process.cwd()}`)
         return rl.question("What would you like to do in your current project? \n\n", (prompt) =>
             processAndContinue({ threadId, prompt, assistantId: PROJECT_MANAGER })
         )
