@@ -1,7 +1,7 @@
 import readline from "readline"
 import OpenAI from "openai"
 
-import { SOFTWARE_ENGINEER_ASSISTANT_ID, SOFTWARE_ARCHITECT_ASSISTANT_ID } from "./constants"
+import { SOFTWARE_ARCHITECT_ASSISTANT_ID } from "./constants"
 
 import Assistants from "./assistants"
 import Tools from "./tools"
