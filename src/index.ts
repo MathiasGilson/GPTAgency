@@ -25,7 +25,7 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
 
     if (!assistantId) {
         // default to software architect assistant to start
-        return rl.question("What would you like to do in your current folder? ", (prompt) =>
+        return rl.question("What would you like to do in your current folder? \n\n", (prompt) =>
             processAndContinue({ threadId, prompt, assistantId: SOFTWARE_ARCHITECT_ASSISTANT_ID })
         )
     }
@@ -36,6 +36,7 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
 const processAndContinue = async ({ threadId, prompt, assistantId }) => {
     const responseObject = await processPrompt({ threadId, prompt, assistantId })
     const question = responseObject[0].text.value
+    process.stdout.write("\n\n") // Move to the next line after loader
     rl.question(question, (nextPrompt) => processAndContinue({ threadId, prompt: nextPrompt, assistantId }))
 }
 
@@ -60,7 +61,7 @@ const waitForResponse = async (threadId, runId) =>
         const loader = setInterval(() => {
             process.stdout.write(`\rWaiting for assistant's response ${loaderSymbols[loaderIndex]}`)
             loaderIndex = (loaderIndex + 1) % loaderSymbols.length
-        }, 250)
+        }, 50)
 
         // Poll every second to check for a response
         const pollForResponse = setInterval(async () => {
