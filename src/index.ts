@@ -1,10 +1,12 @@
 import readline from "readline"
 import OpenAI from "openai"
-
+import fs from "fs"
 import { PROJECT_MANAGER } from "./constants"
 
 import Assistants from "./assistants"
 import Tools from "./tools"
+
+const threadHistoryPath = ".thread_history"
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -17,20 +19,60 @@ const openai = new OpenAI({
 
 export async function callAssistant({ assistantId = null, prompt = "", threadId = null }) {
     if (!threadId) {
-        // Create a thread
-        const thread = await openai.beta.threads.create()
-        threadId = thread.id
-        console.log(`Created thread ${threadId}`)
+        threadId = await listThreads()
+        if (!threadId) {
+            // Create a thread
+            const thread = await openai.beta.threads.create()
+            threadId = thread.id
+            console.log(`Created thread ${threadId}`)
+            await updateThreadHistory(threadId)
+        } else {
+            console.log(`Resuming thread ${threadId}`)
+        }
     }
 
     if (!assistantId) {
         // default to software architect assistant to start
-        return rl.question("What would you like to do in your current folder? \n\n", (prompt) =>
+        console.log(`Current folder path: ${process.cwd()}`)
+        return rl.question("What would you like to do in your current project? \n\n", (prompt) =>
             processAndContinue({ threadId, prompt, assistantId: PROJECT_MANAGER })
         )
     }
 
     return processPrompt({ threadId, prompt, assistantId })
+}
+
+const updateThreadHistory = async (threadId) => {
+    const date = new Date().toISOString()
+    const historyEntry = `${threadId} - ${date}\n`
+    fs.appendFile(threadHistoryPath, historyEntry, (err) => {
+        if (err) {
+            console.error("An error occurred while updating the thread history:", err)
+        }
+    })
+}
+
+// thread_6ACaGrXgf8Brbkznt62GYnd6
+
+const listThreads = async () => {
+    if (fs.existsSync(threadHistoryPath)) {
+        const data = await fs.promises.readFile(threadHistoryPath, "utf8")
+        const threads = data.trim().split("\n").reverse().slice(0, 5)
+        if (threads.length > 0) {
+            console.log("Select a previous thread ID to resume:")
+            threads.forEach((thread, index) => {
+                console.log(`${index + 1}. ${thread}`)
+            })
+            const selected: string = await new Promise((resolve) =>
+                rl.question("Enter the number of the thread to resume or press Enter to start a new thread: ", resolve)
+            )
+            const selectedIndex = parseInt(selected, 10) - 1
+            if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < threads.length) {
+                return threads[selectedIndex].split(" - ")[0]
+            }
+        }
+    }
+    return null
 }
 
 const processAndContinue = async ({ threadId, prompt, assistantId }) => {
@@ -121,7 +163,9 @@ const waitForResponse = async (threadId, runId) =>
                 console.error("An error occurred:", e)
                 clearInterval(pollForResponse)
                 clearInterval(loader)
-                reject(e)
+                // cancel the run
+                await openai.beta.threads.runs.cancel(threadId, runId)
+                return reject(e)
             }
         }, 500)
     })
