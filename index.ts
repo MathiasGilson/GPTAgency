@@ -19,6 +19,7 @@ async function callAssistant({ assistantId = null, prompt = "", threadId = null 
         // Create a thread
         const thread = await openai.beta.threads.create()
         threadId = thread.id
+        console.log(`Created thread ${threadId}`)
     }
     if (!assistantId) {
         // default to software architect assistant to start
@@ -42,56 +43,77 @@ async function processPrompt({ threadId, prompt, assistantId }) {
     return waitForResponse(threadId, run.id)
 }
 
-const waitForResponse = async (threadId, runId) => {
-    // Start loader
-    let loaderIndex = 0
-    const loaderSymbols = ["|", "/", "-", "\\"]
-    const loader = setInterval(() => {
-        process.stdout.write(`\rWaiting for assistant's response ${loaderSymbols[loaderIndex]}`)
-        loaderIndex = (loaderIndex + 1) % loaderSymbols.length
-    }, 250)
+const waitForResponse = async (threadId, runId) =>
+    new Promise((resolve, reject) => {
+        // Start loader
+        let loaderIndex = 0
+        const loaderSymbols = ["|", "/", "-", "\\"]
+        const loader = setInterval(() => {
+            process.stdout.write(`\rWaiting for assistant's response ${loaderSymbols[loaderIndex]}`)
+            loaderIndex = (loaderIndex + 1) % loaderSymbols.length
+        }, 250)
 
-    // Poll every second to check for a response
-    const pollForResponse = setInterval(async () => {
-        const updatedRun = await openai.beta.threads.runs.retrieve(threadId, runId)
+        // Poll every second to check for a response
+        const pollForResponse = setInterval(async () => {
+            try {
+                const updatedRun = await openai.beta.threads.runs.retrieve(threadId, runId)
 
-        if (updatedRun.status === "in_progress") {
-            return
-        }
+                if (updatedRun.status === "in_progress") {
+                    return
+                }
 
-        clearInterval(pollForResponse)
-        clearInterval(loader)
-        console.log(JSON.stringify(updatedRun, null, 2))
+                clearInterval(pollForResponse)
+                clearInterval(loader)
+                console.log(JSON.stringify(updatedRun, null, 2))
 
-        if (updatedRun.status === "failed") {
-            console.error("An error occurred:", updatedRun.last_error.message)
-            return "Assistant failed"
-        }
+                if (updatedRun.status === "failed") {
+                    console.error("An error occurred:", updatedRun.last_error.message)
+                    return reject(updatedRun.last_error.message)
+                }
 
-        if (updatedRun.status === "completed") {
-            process.stdout.write("\n") // Move to the next line after loader
-            const messagesResponse = await openai.beta.threads.messages.list(threadId)
+                if (updatedRun.status === "completed") {
+                    process.stdout.write("\n") // Move to the next line after loader
+                    const messagesResponse = await openai.beta.threads.messages.list(threadId)
 
-            // Display the assistant's response
-            const assistantResponse = messagesResponse.data.find((m) => m.role === "assistant")
-            return assistantResponse?.content ?? "No response"
-        }
+                    // Display the assistant's response
+                    const assistantResponse = messagesResponse.data.find((m) => m.role === "assistant")
+                    const response = assistantResponse?.content ?? "No response"
+                    console.log(`Assistant response: ${response}`)
+                    return resolve(response)
+                }
 
-        if (updatedRun.status === "requires_action") {
-            if (updatedRun.required_action.type === "submit_tool_outputs") {
-                return Promise.all(
-                    updatedRun.required_action.submit_tool_outputs.tool_calls.map((tool) => callTool(tool))
-                ).then(async (results) => {
-                    await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
-                        tool_outputs: results
-                    })
+                if (updatedRun.status === "requires_action") {
+                    if (updatedRun.required_action.type === "submit_tool_outputs") {
+                        return Promise.all(
+                            updatedRun.required_action.submit_tool_outputs.tool_calls.map((tool) => callTool(tool))
+                        ).then(async (results) => {
+                            try {
+                                await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
+                                    tool_outputs: results
+                                })
+                            } catch (e) {
+                                console.error(
+                                    `An error occurred while submitting tools responses from thread ${threadId}`,
+                                    e
+                                )
+                                clearInterval(pollForResponse)
+                                clearInterval(loader)
+                                reject(e)
+                            }
 
-                    return waitForResponse(threadId, runId)
-                })
+                            const response = await waitForResponse(threadId, runId)
+                            return resolve(response)
+                        })
+                    }
+                }
+            } catch (e) {
+                console.error("An error occurred:", e)
+                clearInterval(pollForResponse)
+                clearInterval(loader)
+                reject(e)
             }
-        }
-    }, 500)
-}
+        }, 500)
+    })
 
 interface Tool {
     id: string
@@ -139,81 +161,109 @@ const callTool = async (tool) => {
 
 const ASSISTANTS = {
     call_software_engineer: (args: { files: string[]; featureDetails: string; createFiles: string[] }) => {
-        let prompt = `Implement this features. ${args.featureDetails}`
-        if (args.files.length > 0) {
-            prompt += `. Use the following files for this feature: ${args.files.join(", ")}`
-        }
-        if (args.createFiles.length > 0) {
-            prompt += `. Create the following files for this feature: ${args.createFiles.join(", ")}`
-        }
-        return callAssistant({ assistantId: SOFTWARE_ENGINEER_ASSISTANT_ID, prompt })
+        return new Promise((resolve, reject) => {
+            let prompt = `Implement this features. ${args.featureDetails}`
+            if (args.files.length > 0) {
+                prompt += `. Use the following files for this feature: ${args.files.join(", ")}`
+            }
+            if (args.createFiles.length > 0) {
+                prompt += `. Create the following files for this feature: ${args.createFiles.join(", ")}`
+            }
+            return callAssistant({ assistantId: SOFTWARE_ENGINEER_ASSISTANT_ID, prompt }).then(resolve).catch(reject)
+        })
     },
     call_project_manager: (args: { message: string }) => {
-        return console.log("Calling project manager:", args)
+        return new Promise((resolve) => {
+            console.log("Calling project manager:", args)
+            resolve("Called project manager")
+        })
     }
 }
 
 const TOOLS = {
     call_software_engineer: (args: { files: string[]; featureDetails: string; createFiles: string[] }, threadId) => {
-        let prompt = `Implement this features. ${args.featureDetails}`
-        if (args.files.length > 0) {
-            prompt += `. Use the following files for this feature: ${args.files.join(", ")}`
-        }
-        if (args.createFiles.length > 0) {
-            prompt += `. Create the following files for this feature: ${args.createFiles.join(", ")}`
-        }
-        return callAssistant({ assistantId: SOFTWARE_ENGINEER_ASSISTANT_ID, prompt, threadId })
+        return new Promise((resolve, reject) => {
+            let prompt = `Implement this features. ${args.featureDetails}`
+            if (args.files.length > 0) {
+                prompt += `. Use the following files for this feature: ${args.files.join(", ")}`
+            }
+            if (args.createFiles.length > 0) {
+                prompt += `. Create the following files for this feature: ${args.createFiles.join(", ")}`
+            }
+            callAssistant({ assistantId: SOFTWARE_ENGINEER_ASSISTANT_ID, prompt, threadId }).then(resolve).catch(reject)
+        })
     },
     call_project_manager: (args: { message: string }) => {
-        return console.log("Calling project manager:", args)
+        return new Promise((resolve) => {
+            console.log("Calling project manager:", args)
+            resolve("Called project manager")
+        })
     },
     list_files: () => {
-        fs.readdir(".", (err, files) => {
-            if (err) {
-                console.error("An error occurred:", err)
-                return
-            }
-            console.log("Listing files in current directory:")
-            return files
+        return new Promise((resolve, reject) => {
+            fs.readdir(".", (err, files) => {
+                if (err) {
+                    console.error("An error occurred:", err)
+                    reject(err)
+                    return
+                }
+                console.log("Listing files in current directory:")
+                resolve(files)
+            })
         })
     },
     create_file: (args: { filePath: string; content: string }) => {
-        fs.writeFile(args.filePath, args.content, (err) => {
-            if (err) {
-                console.error("An error occurred:", err)
-                return
-            }
-            console.log(`File ${args.filePath} created successfully.`)
+        return new Promise((resolve, reject) => {
+            fs.writeFile(args.filePath, args.content, (err) => {
+                if (err) {
+                    console.error("An error occurred:", err)
+                    reject(err)
+                    return
+                }
+                console.log(`File ${args.filePath} created successfully.`)
+                resolve(`File ${args.filePath} created successfully.`)
+            })
         })
     },
     delete_file: (args: { filePath: string }) => {
-        fs.unlink(args.filePath, (err) => {
-            if (err) {
-                console.error("An error occurred:", err)
-                return
-            }
-            console.log(`File ${args.filePath} deleted successfully.`)
+        return new Promise((resolve, reject) => {
+            fs.unlink(args.filePath, (err) => {
+                if (err) {
+                    console.error("An error occurred:", err)
+                    reject(err)
+                    return
+                }
+                console.log(`File ${args.filePath} deleted successfully.`)
+                resolve(`File ${args.filePath} deleted successfully.`)
+            })
         })
     },
     rename_file: (args: { filePath: string; newFilePath: string }) => {
-        fs.rename(args.filePath, args.newFilePath, (err) => {
-            if (err) {
-                console.error("An error occurred:", err)
-                return
-            }
-            console.log(`File ${args.filePath} renamed to ${args.newFilePath} successfully.`)
+        return new Promise((resolve, reject) => {
+            fs.rename(args.filePath, args.newFilePath, (err) => {
+                if (err) {
+                    console.error("An error occurred:", err)
+                    reject(err)
+                    return
+                }
+                console.log(`File ${args.filePath} renamed to ${args.newFilePath} successfully.`)
+                resolve(`File ${args.filePath} renamed to ${args.newFilePath} successfully.`)
+            })
         })
     },
     read_file: (args: { filePath: string }) => {
-        fs.readFile(args.filePath, "utf8", (err, data) => {
-            if (err) {
-                console.error("An error occurred:", err)
-                return
-            }
-            const lines = data.split("\n").map((line, index) => `${index + 1}: ${line}`)
-            const numberedData = lines.join("\n")
-            console.log(`File ${args.filePath} contents:\n${numberedData}`)
-            return numberedData
+        return new Promise((resolve, reject) => {
+            fs.readFile(args.filePath, "utf8", (err, data) => {
+                if (err) {
+                    console.error("An error occurred:", err)
+                    reject(err)
+                    return
+                }
+                const lines = data.split("\n").map((line, index) => `${index + 1}: ${line}`)
+                const numberedData = lines.join("\n")
+                console.log(`File ${args.filePath} contents:\n${numberedData}`)
+                resolve(numberedData)
+            })
         })
     },
     patch_file: (args: {
@@ -226,23 +276,28 @@ const TOOLS = {
             }
         ]
     }) => {
-        fs.readFile(args.filePath, "utf8", (err, data) => {
-            if (err) {
-                console.error("An error occurred:", err)
-                return
-            }
-
-            const lines = data.split("\n")
-            args.patches.forEach(({ fromLine, toLine, replacementLines }) => {
-                lines.splice(fromLine, toLine - fromLine, ...replacementLines)
-            })
-            const newData = lines.join("\n")
-            fs.writeFile(args.filePath, newData, (err) => {
+        return new Promise((resolve, reject) => {
+            fs.readFile(args.filePath, "utf8", (err, data) => {
                 if (err) {
                     console.error("An error occurred:", err)
+                    reject(err)
                     return
                 }
-                console.log(`File ${args.filePath} patched successfully.`)
+
+                const lines = data.split("\n")
+                args.patches.forEach(({ fromLine, toLine, replacementLines }) => {
+                    lines.splice(fromLine, toLine - fromLine, ...replacementLines)
+                })
+                const newData = lines.join("\n")
+                fs.writeFile(args.filePath, newData, (err) => {
+                    if (err) {
+                        console.error("An error occurred:", err)
+                        reject(err)
+                        return
+                    }
+                    console.log(`File ${args.filePath} patched successfully.`)
+                    resolve(`File ${args.filePath} patched successfully.`)
+                })
             })
         })
     }
