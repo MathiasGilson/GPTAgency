@@ -31,7 +31,20 @@ process.on("SIGINT", () => {
 
 export async function callAssistant({ assistantId = null, prompt = "", threadId = null }) {
     if (!threadId) {
-        threadId = assistantId ? null : await listThreads()
+        if (!assistantId) {
+            // first time, check for previous threads
+            // list runs
+            threadId = await listThreads()
+            if (threadId) {
+                const runs = await openai.beta.threads.runs.list(threadId, { limit: 1 })
+                const lastRun = runs.data[0]
+                if (lastRun && ["queued", "in_progress", "requires_action"].includes(lastRun.status)) {
+                    const lastRunId = lastRun.id
+                    console.log(`Cancelling last run ${lastRunId}...`)
+                    await openai.beta.threads.runs.cancel(threadId, lastRunId)
+                }
+            }
+        }
         if (!threadId) {
             // Create a thread
             const thread = await openai.beta.threads.create()
