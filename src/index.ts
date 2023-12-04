@@ -118,7 +118,8 @@ const processAndContinue = async ({ threadId, prompt, assistantId }) => {
     const responseObject = await processPrompt({ threadId, prompt, assistantId })
     const question = responseObject[0].text.value + "\n\n"
     process.stdout.write("\n\n") // Move to the next line after loader
-    rl.question(question, (nextPrompt) => processAndContinue({ threadId, prompt: nextPrompt, assistantId }))
+
+    return rl.question(question, (nextPrompt) => processAndContinue({ threadId, prompt: nextPrompt, assistantId }))
 }
 
 async function processPrompt({ threadId, prompt, assistantId }) {
@@ -162,8 +163,19 @@ const waitForResponse = async (threadId, runId) =>
                 console.log(JSON.stringify(updatedRun, null, 2))
 
                 if (updatedRun.status === "failed") {
-                    console.error("An error occurred:", updatedRun.last_error.message)
-                    return reject(updatedRun.last_error.message)
+                    const error = updatedRun.last_error.message
+                    console.error("An error occurred:", error)
+                    if (error === "Sorry, something went wrong.") {
+                        // retry the run if random error
+                        console.log("Retrying run...")
+                        return callAssistant({
+                            threadId,
+                            assistantId: updatedRun.assistant_id,
+                            prompt: "something went wrong, retry last execution"
+                        })
+                    }
+
+                    return reject()
                 }
 
                 if (updatedRun.status === "completed") {
@@ -187,6 +199,7 @@ const waitForResponse = async (threadId, runId) =>
                                 await new Promise<void>((resolve) => {
                                     const interval = setInterval(async () => {
                                         const run = await openai.beta.threads.runs.retrieve(threadId, runId)
+                                        console.log("Run status:", run.status)
                                         if (["requires_action", "completed"].includes(run.status)) {
                                             clearInterval(interval)
                                             return resolve()

@@ -1,18 +1,40 @@
 import fs from "fs"
+import path from "path"
+import { minimatch } from "minimatch"
 
 export default {
-    list_files: () => {
+    list_files: function (dir = ".") {
         return new Promise((resolve) => {
             console.log("🗄️ Listing files in current directory...")
-            fs.readdir(".", (err, files) => {
+            fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
                 if (err) {
                     console.error("An error occurred:", err)
-                    if (err.code === "ENOENT") {
-                        return resolve(`Current directory does not exist.`)
-                    }
                     return resolve(`Listing failed with error ${err.message}`)
                 }
-                resolve(JSON.stringify(files))
+                let files = []
+                const promises = []
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name)
+                    if (entry.isDirectory()) {
+                        promises.push(this.list_files(fullPath))
+                    } else {
+                        files.push(fullPath)
+                    }
+                }
+                if (fs.existsSync(".gitignore")) {
+                    const gitignore = fs
+                        .readFileSync(".gitignore", "utf-8")
+                        .split("\n")
+                        .filter(Boolean)
+                        .map((line) => line.trim())
+                    files = files.filter((file) => !gitignore.some((ignore) => minimatch(file, ignore)))
+                }
+                return Promise.all(promises)
+                    .then((nestedFiles) => {
+                        const allFiles = files.concat(...nestedFiles)
+                        resolve(JSON.stringify(allFiles))
+                    })
+                    .catch((error) => resolve(`Listing failed with error ${error.message}`))
             })
         })
     },
