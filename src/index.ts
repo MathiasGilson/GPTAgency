@@ -65,6 +65,8 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
             // default to the project manager assistant
             return processAndContinue({ threadId, prompt, assistantId: PROJECT_MANAGER })
         }
+
+        // recursive call, create a sub thread
         if (!threadId) {
             // Create a thread
             const thread = await openai.beta.threads.create()
@@ -264,7 +266,10 @@ const callTool = async (tool: Tool) => {
             // This is a call to another assistant
             const callAssistant = Assistants[tool.function.name]
             if (!callAssistant) {
-                throw new Error(`Assistant ${tool.function.name} not found`)
+                return {
+                    tool_call_id: tool.id,
+                    output: `Assistant ${tool.function.name} not found`
+                }
             }
 
             const output = await callAssistant(args)
@@ -278,7 +283,10 @@ const callTool = async (tool: Tool) => {
         // This is a call to a tool
         const matchingTool = Tools[tool.function.name]
         if (!matchingTool) {
-            throw new Error(`Tool ${tool.function.name} not found`)
+            return {
+                tool_call_id: tool.id,
+                output: `Tool ${tool.function.name} not found`
+            }
         }
 
         const output = await matchingTool(args)

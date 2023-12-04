@@ -3,7 +3,11 @@ import path from "path"
 import { minimatch } from "minimatch"
 
 export default {
-    list_files: (dir = ".") => {
+    list_files: (
+        args: { folderPath: string } = {
+            folderPath: "."
+        }
+    ) => {
         return new Promise((resolve) => {
             console.log("🗄️ Listing files in current directory...")
 
@@ -44,7 +48,7 @@ export default {
                     })
                 })
 
-            return listFiles(dir, new Set<string>())
+            return listFiles(args.folderPath, new Set<string>())
                 .then((files) => {
                     console.log(`Files listed successfully.`, files)
                     return resolve(JSON.stringify(files))
