@@ -22,13 +22,21 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
         threadId = thread.id
         console.log(`Created thread ${threadId}`)
     }
+
     if (!assistantId) {
         // default to software architect assistant to start
         return rl.question("What would you like to do in your current folder? ", (prompt) =>
-            processPrompt({ threadId, prompt, assistantId: SOFTWARE_ARCHITECT_ASSISTANT_ID })
+            processAndContinue({ threadId, prompt, assistantId: SOFTWARE_ARCHITECT_ASSISTANT_ID })
         )
     }
+
     return processPrompt({ threadId, prompt, assistantId })
+}
+
+const processAndContinue = async ({ threadId, prompt, assistantId }) => {
+    const responseObject = await processPrompt({ threadId, prompt, assistantId })
+    const question = responseObject[0].text.value
+    rl.question(question, (nextPrompt) => processAndContinue({ threadId, prompt: nextPrompt, assistantId }))
 }
 
 async function processPrompt({ threadId, prompt, assistantId }) {
@@ -79,7 +87,7 @@ const waitForResponse = async (threadId, runId) =>
                     // Display the assistant's response
                     const assistantResponse = messagesResponse.data.find((m) => m.role === "assistant")
                     const response = assistantResponse?.content ?? "No response"
-                    console.log(`Assistant response: ${response}`)
+                    console.log(`Assistant response:`, response)
                     return resolve(response)
                 }
 
