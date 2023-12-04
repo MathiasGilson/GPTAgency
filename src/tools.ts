@@ -59,16 +59,19 @@ export default {
     create_file: (args: { filePath: string }) => {
         return new Promise((resolve) => {
             console.log(`📝 Creating file ${args.filePath}...`)
-            fs.writeFile(args.filePath, "", (err) => {
-                if (err) {
-                    console.error("An error occurred:", err)
-                    if (err.code === "ENOENT") {
-                        return resolve(`File ${args.filePath} does not exist.`)
-                    }
-                    return resolve(`Creation failed with error ${err.message}`)
+            fs.mkdir(path.dirname(args.filePath), { recursive: true }, (dirErr) => {
+                if (dirErr) {
+                    console.error("An error occurred creating directory:", dirErr)
+                    return resolve(`Directory creation failed with error ${dirErr.message}`)
                 }
-                console.log(`File ${args.filePath} created successfully.`)
-                resolve(`File ${args.filePath} created successfully.`)
+                fs.writeFile(args.filePath, "", (fileErr) => {
+                    if (fileErr) {
+                        console.error("An error occurred:", fileErr)
+                        return resolve(`File creation failed with error ${fileErr.message}`)
+                    }
+                    console.log(`File ${args.filePath} created successfully.`)
+                    resolve(`File ${args.filePath} created successfully.`)
+                })
             })
         })
     },
