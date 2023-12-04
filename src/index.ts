@@ -13,13 +13,25 @@ const rl = readline.createInterface({
     output: process.stdout
 })
 
+let currentRunId = null
+let currentThreadId = null
+
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY // Make sure to set your OpenAI API key in the environment variables
 })
 
+process.on("SIGINT", () => {
+    console.log("Closing...")
+    if (currentRunId) {
+        console.log(`Cancelling run ${currentRunId}...`)
+        openai.beta.threads.runs.cancel(currentThreadId, currentRunId)
+    }
+    process.exit()
+})
+
 export async function callAssistant({ assistantId = null, prompt = "", threadId = null }) {
     if (!threadId) {
-        threadId = await listThreads()
+        threadId = assistantId ? null : await listThreads()
         if (!threadId) {
             // Create a thread
             const thread = await openai.beta.threads.create()
@@ -59,12 +71,15 @@ const listThreads = async () => {
         const data = await fs.promises.readFile(threadHistoryPath, "utf8")
         const threads = data.trim().split("\n").reverse().slice(0, 5)
         if (threads.length > 0) {
-            console.log("Select a previous thread ID to resume:")
+            console.log("\nSelect a previous thread ID to resume:")
             threads.forEach((thread, index) => {
-                console.log(`${index + 1}. ${thread}`)
+                console.log(`\n>> ${index + 1}. ${thread}`)
             })
             const selected: string = await new Promise((resolve) =>
-                rl.question("Enter the number of the thread to resume or press Enter to start a new thread: ", resolve)
+                rl.question(
+                    "\n\nEnter the number of the thread to resume or press Enter to start a new thread: ",
+                    resolve
+                )
             )
             const selectedIndex = parseInt(selected, 10) - 1
             if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < threads.length) {
@@ -90,6 +105,9 @@ async function processPrompt({ threadId, prompt, assistantId }) {
     const run = await openai.beta.threads.runs.create(threadId, {
         assistant_id: assistantId
     })
+
+    currentRunId = run.id
+    currentThreadId = threadId
 
     // Wait for the assistant's response
     return waitForResponse(threadId, run.id)
