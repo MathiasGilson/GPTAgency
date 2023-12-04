@@ -33,9 +33,10 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
     if (!threadId) {
         if (!assistantId) {
             // first time, check for previous threads
-            // list runs
+
             threadId = await listThreads()
             if (threadId) {
+                // list runs and cancel the last one if it's still running
                 const runs = await openai.beta.threads.runs.list(threadId, { limit: 1 })
                 const lastRun = runs.data[0]
                 if (lastRun && ["queued", "in_progress", "requires_action"].includes(lastRun.status)) {
@@ -43,25 +44,35 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
                     console.log(`Cancelling last run ${lastRunId}...`)
                     await openai.beta.threads.runs.cancel(threadId, lastRunId)
                 }
+
+                // if the last run was cancelled, prompt the assistant to resume the thread execution
+                prompt = "resume execution"
+            } else {
+                const thread = await openai.beta.threads.create()
+                threadId = thread.id
+                console.log(`Created thread ${threadId}`)
+                await updateThreadHistory(threadId)
             }
+
+            if (!prompt) {
+                // Fresh start, ask the user what they want to do
+                console.log(`\n\nCurrent folder path: ${process.cwd()}`)
+                prompt = await new Promise((resolve) =>
+                    rl.question("What would you like to do in your current project? \n\n", resolve)
+                )
+            }
+
+            // default to the project manager assistant
+            return processAndContinue({ threadId, prompt, assistantId: PROJECT_MANAGER })
         }
         if (!threadId) {
             // Create a thread
             const thread = await openai.beta.threads.create()
             threadId = thread.id
-            console.log(`Created thread ${threadId}`)
-            await updateThreadHistory(threadId)
+            console.log(`Created sub thread ${threadId}`)
         } else {
             console.log(`Resuming thread ${threadId}`)
         }
-    }
-
-    if (!assistantId) {
-        // default to software architect assistant to start
-        console.log(`\n\nCurrent folder path: ${process.cwd()}`)
-        return rl.question("What would you like to do in your current project? \n\n", (prompt) =>
-            processAndContinue({ threadId, prompt, assistantId: PROJECT_MANAGER })
-        )
     }
 
     return processPrompt({ threadId, prompt, assistantId })
@@ -172,6 +183,21 @@ const waitForResponse = async (threadId, runId) =>
                             updatedRun.required_action.submit_tool_outputs.tool_calls.map((tool) => callTool(tool))
                         ).then(async (results) => {
                             try {
+                                // wait for run to be ready to accept tool outputs
+                                await new Promise<void>((resolve) => {
+                                    const interval = setInterval(async () => {
+                                        const run = await openai.beta.threads.runs.retrieve(threadId, runId)
+                                        if (["requires_action", "completed"].includes(run.status)) {
+                                            clearInterval(interval)
+                                            return resolve()
+                                        }
+                                        if (["failed", "cancelled", "cancelling", "expired"].includes(run.status)) {
+                                            clearInterval(interval)
+                                            throw new Error("Run failed")
+                                        }
+                                    }, 1000)
+                                })
+                                // submit tool outputs
                                 await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
                                     tool_outputs: results
                                 })
