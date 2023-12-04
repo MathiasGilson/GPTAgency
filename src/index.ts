@@ -1,7 +1,7 @@
 import readline from "readline"
 import OpenAI from "openai"
 
-import { SOFTWARE_ARCHITECT_ASSISTANT_ID } from "./constants"
+import { PROJECT_MANAGER } from "./constants"
 
 import Assistants from "./assistants"
 import Tools from "./tools"
@@ -26,7 +26,7 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
     if (!assistantId) {
         // default to software architect assistant to start
         return rl.question("What would you like to do in your current folder? \n\n", (prompt) =>
-            processAndContinue({ threadId, prompt, assistantId: SOFTWARE_ARCHITECT_ASSISTANT_ID })
+            processAndContinue({ threadId, prompt, assistantId: PROJECT_MANAGER })
         )
     }
 
@@ -35,7 +35,7 @@ export async function callAssistant({ assistantId = null, prompt = "", threadId 
 
 const processAndContinue = async ({ threadId, prompt, assistantId }) => {
     const responseObject = await processPrompt({ threadId, prompt, assistantId })
-    const question = responseObject[0].text.value
+    const question = responseObject[0].text.value + "\n\n"
     process.stdout.write("\n\n") // Move to the next line after loader
     rl.question(question, (nextPrompt) => processAndContinue({ threadId, prompt: nextPrompt, assistantId }))
 }
@@ -58,6 +58,7 @@ const waitForResponse = async (threadId, runId) =>
         // Start loader
         let loaderIndex = 0
         const loaderSymbols = ["|", "/", "-", "\\"]
+        process.stdout.write("\n\n") // Move to the next line after loader
         const loader = setInterval(() => {
             process.stdout.write(`\rWaiting for assistant's response ${loaderSymbols[loaderIndex]}`)
             loaderIndex = (loaderIndex + 1) % loaderSymbols.length
@@ -143,12 +144,15 @@ const callTool = async (tool: Tool) => {
             return
         }
 
+        console.log("\n\n")
+
         if (tool.function.name.startsWith("call_")) {
             // This is a call to another assistant
             const callAssistant = Assistants[tool.function.name]
             if (!callAssistant) {
                 throw new Error(`Assistant ${tool.function.name} not found`)
             }
+
             const output = await callAssistant(args)
             console.log("Assistant output:", output)
             return {

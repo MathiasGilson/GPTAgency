@@ -3,19 +3,20 @@ import fs from "fs"
 export default {
     list_files: () => {
         return new Promise((resolve, reject) => {
+            console.log("🗄️ Listing files in current directory...")
             fs.readdir(".", (err, files) => {
                 if (err) {
                     console.error("An error occurred:", err)
                     reject(err)
                     return
                 }
-                console.log("Listing files in current directory:")
                 resolve(JSON.stringify(files))
             })
         })
     },
     create_file: (args: { filePath: string }) => {
         return new Promise((resolve, reject) => {
+            console.log(`📝 Creating file ${args.filePath}...`)
             fs.writeFile(args.filePath, "", (err) => {
                 if (err) {
                     console.error("An error occurred:", err)
@@ -29,6 +30,7 @@ export default {
     },
     delete_file: (args: { filePath: string }) => {
         return new Promise((resolve, reject) => {
+            console.log(`❌ Deleting file ${args.filePath}...`)
             fs.unlink(args.filePath, (err) => {
                 if (err) {
                     console.error("An error occurred:", err)
@@ -42,6 +44,7 @@ export default {
     },
     rename_file: (args: { filePath: string; newFilePath: string }) => {
         return new Promise((resolve, reject) => {
+            console.log(`📝 Renaming file ${args.filePath} to ${args.newFilePath}...`)
             fs.rename(args.filePath, args.newFilePath, (err) => {
                 if (err) {
                     console.error("An error occurred:", err)
@@ -55,6 +58,7 @@ export default {
     },
     read_file: (args: { filePath: string }) => {
         return new Promise((resolve, reject) => {
+            console.log(`📖 Reading file ${args.filePath}...`)
             fs.readFile(args.filePath, "utf8", (err, data) => {
                 if (err) {
                     console.error("An error occurred:", err)
@@ -79,6 +83,7 @@ export default {
         ]
     }) => {
         return new Promise((resolve, reject) => {
+            console.log(`📝 Patching file ${args.filePath}...`)
             fs.readFile(args.filePath, "utf8", (err, data) => {
                 if (err) {
                     console.error("An error occurred:", err)
